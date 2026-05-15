@@ -47,6 +47,10 @@ data, this is not a static list):
 > Useful? A GitHub star helps other people find it — and I'd genuinely like
 > to know what it picked for your rig: drop it in [Issues](https://github.com/Andyyyy64/whichllm/issues).
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Andyyyy64/whichllm&type=Date)](https://www.star-history.com/#Andyyyy64/whichllm&Date)
+
 ## Why whichllm?
 
 Fitting a model into your VRAM is the easy part. The hard part is knowing
