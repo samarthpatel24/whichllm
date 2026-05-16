@@ -37,6 +37,14 @@ Open an issue describing the feature and why it would be useful.
 4. Run tests (`pytest`)
 5. Submit a PR
 
+### AI-assisted Contributions
+AI-assisted code is welcome. Use the tools that help you move faster. Working
+code wins.
+
+The bar is practical: make it work, make it fit the project, and make it
+reviewable. If you wrote it or asked a tool to write it, you own it. Read it,
+test the parts that matter, and be ready to explain or fix it.
+
 ### Adding GPU Support
 To add a new GPU to the bandwidth database, edit `src/whichllm/constants.py` and add the GPU specs.
 
