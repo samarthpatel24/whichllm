@@ -13,6 +13,9 @@ class CompatibilityResult:
     vram_required_bytes: int
     vram_available_bytes: int
     estimated_tok_per_sec: float | None = None
+    speed_confidence: str = "medium"  # "high" | "medium" | "low"
+    speed_range_tok_per_sec: tuple[float, float] | None = None
+    speed_notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     quality_score: float = 0.0  # 0-100 for ranking
     fit_type: str = "full_gpu"  # "full_gpu" | "partial_offload" | "cpu_only"

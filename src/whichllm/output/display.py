@@ -58,6 +58,18 @@ def _format_published_at(value: str | None) -> str:
         return value[:10] if len(value) >= 10 else value
 
 
+def _format_speed(result: CompatibilityResult) -> str:
+    speed = result.estimated_tok_per_sec
+    if speed is None:
+        return "N/A"
+    base = f"{speed:.1f} tok/s"
+    if result.speed_confidence == "low":
+        return f"[red]{base} ?[/red]"
+    if result.speed_confidence == "medium":
+        return f"[yellow]{base} ~[/yellow]"
+    return base
+
+
 def _parse_published_at(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -264,9 +276,7 @@ def display_ranking(
     for i, r in enumerate(results, 1):
         quant = effective_quant_type(r.model, r.gguf_variant)
         vram_str = _format_bytes(r.vram_required_bytes)
-        speed_str = (
-            f"{r.estimated_tok_per_sec:.1f} tok/s" if r.estimated_tok_per_sec else "N/A"
-        )
+        speed_str = _format_speed(r)
 
         # Score with benchmark status indicator
         score_val = f"{r.quality_score:.1f}"
@@ -338,6 +348,17 @@ def display_ranking(
             parts.append("[red]None / ?[/red] = no benchmark data")
         console.print(f"  [dim]Score:[/dim]  {',  '.join(parts)}")
 
+    if show_status:
+        has_speed_medium = any(r.speed_confidence == "medium" for r in results)
+        has_speed_low = any(r.speed_confidence == "low" for r in results)
+        if has_speed_medium or has_speed_low:
+            parts = []
+            if has_speed_medium:
+                parts.append("[yellow]~[/yellow] = estimated tok/s range")
+            if has_speed_low:
+                parts.append("[red]?[/red] = low-confidence/backend-sensitive tok/s")
+            console.print(f"  [dim]Speed:[/dim]  {',  '.join(parts)}")
+
     has_direct = any(r.benchmark_status == "direct" for r in results)
     if not has_direct:
         console.print(
@@ -377,6 +398,15 @@ def display_ranking(
         joined = ", ".join(f"#{i}" for i in weak_top)
         console.print(
             f"  [yellow]Caution:[/] Weaker benchmark evidence in top ranks: {joined}"
+        )
+
+    weak_speed_top = [
+        idx + 1 for idx, r in enumerate(results[:3]) if r.speed_confidence == "low"
+    ]
+    if weak_speed_top:
+        joined = ", ".join(f"#{i}" for i in weak_speed_top)
+        console.print(
+            f"  [yellow]Speed caution:[/] Low-confidence speed estimates in top ranks: {joined}"
         )
 
     specialized: list[str] = []
@@ -692,6 +722,13 @@ def display_json(results: list[CompatibilityResult], hardware: HardwareInfo) -> 
                 ),
                 "vram_required_bytes": r.vram_required_bytes,
                 "estimated_tok_per_sec": r.estimated_tok_per_sec,
+                "speed_confidence": r.speed_confidence,
+                "speed_range_tok_per_sec": (
+                    list(r.speed_range_tok_per_sec)
+                    if r.speed_range_tok_per_sec
+                    else None
+                ),
+                "speed_notes": r.speed_notes,
                 "quality_score": round(r.quality_score, 2),
                 "benchmark_status": r.benchmark_status,
                 "fit_type": r.fit_type,
@@ -721,6 +758,8 @@ def _summarize_row(name: str, hw: HardwareInfo, results: list) -> dict:
             "top_model": "—",
             "top_quality": 0.0,
             "top_tok_s": 0.0,
+            "top_speed_confidence": "low",
+            "top_speed_range_tok_per_sec": None,
             "top_fit": "—",
             "top_quant": "—",
         }
@@ -732,6 +771,10 @@ def _summarize_row(name: str, hw: HardwareInfo, results: list) -> dict:
         "top_model": r.model.id,
         "top_quality": float(r.quality_score),
         "top_tok_s": float(r.estimated_tok_per_sec),
+        "top_speed_confidence": r.speed_confidence,
+        "top_speed_range_tok_per_sec": (
+            list(r.speed_range_tok_per_sec) if r.speed_range_tok_per_sec else None
+        ),
         "top_fit": r.fit_type,
         "top_quant": (
             r.gguf_variant.quant_type

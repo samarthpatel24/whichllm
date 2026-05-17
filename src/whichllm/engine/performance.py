@@ -68,6 +68,18 @@ _MOE_REFERENCE_BANDWIDTH_GBPS = 256.0
 _MOE_MIN_READ_RATIO_AT_REFERENCE = 0.05
 _MOE_MAX_READ_RATIO_FLOOR = 0.25
 
+_SPEED_CONFIDENCE_RANGE_FACTORS: dict[str, tuple[float, float]] = {
+    "high": (0.85, 1.20),
+    "medium": (0.60, 1.60),
+    "low": (0.35, 2.00),
+}
+
+_SPEED_CONFIDENCE_ORDER = {
+    "low": 0,
+    "medium": 1,
+    "high": 2,
+}
+
 
 def _backend_factor(gpu: GPUInfo) -> float:
     if gpu.vendor in _BACKEND_FACTOR:
@@ -103,6 +115,99 @@ def _moe_effective_read_ratio(model: ModelInfo, gpu: GPUInfo) -> float:
     floor = min(_MOE_MAX_READ_RATIO_FLOOR, floor)
 
     return min(1.0, max(active_ratio, floor))
+
+
+def _lower_speed_confidence(current: str, candidate: str) -> str:
+    if _SPEED_CONFIDENCE_ORDER[candidate] < _SPEED_CONFIDENCE_ORDER[current]:
+        return candidate
+    return current
+
+
+def _looks_synthetic_gguf(model: ModelInfo, variant: GGUFVariant | None) -> bool:
+    if variant is None:
+        return False
+    if not variant.filename:
+        return False
+    expected = f"{model.name}.{variant.quant_type}.gguf"
+    return variant.filename == expected
+
+
+def estimate_speed_uncertainty(
+    model: ModelInfo,
+    variant: GGUFVariant | None,
+    gpu: GPUInfo | None,
+    fit_type: str,
+    estimated_tok_per_sec: float | None,
+) -> tuple[str, tuple[float, float] | None, list[str]]:
+    """Return confidence metadata for the speed point estimate.
+
+    The tok/s estimator is intentionally hardware/model-metadata based; it
+    does not know the user's exact llama.cpp, Vulkan, ROCm, Metal, MLX, or
+    runtime kernel versions. This helper keeps that uncertainty visible
+    without mixing it into the ranking score itself.
+    """
+    notes = [
+        "Speed is estimated from memory bandwidth, quantization, backend, and fit type."
+    ]
+    confidence = "medium"
+
+    if estimated_tok_per_sec is None or estimated_tok_per_sec <= 0:
+        return (
+            "low",
+            None,
+            notes + ["No usable bandwidth estimate was available for this setup."],
+        )
+
+    if gpu is None or fit_type == "cpu_only":
+        confidence = "low"
+        notes.append(
+            "CPU-only speed varies heavily with memory channels and BLAS/kernel path."
+        )
+    else:
+        if not gpu.memory_bandwidth_gbps:
+            confidence = "low"
+            notes.append(
+                "GPU memory bandwidth is unknown, so speed is especially uncertain."
+            )
+
+        if fit_type == "partial_offload":
+            confidence = "low"
+            if gpu.vendor == "apple" or gpu.shared_memory:
+                notes.append(
+                    "Partial offload on unified memory is backend-sensitive but avoids a PCIe cliff."
+                )
+            else:
+                notes.append(
+                    "Partial offload on a discrete GPU depends strongly on PCIe and CPU RAM bandwidth."
+                )
+
+        if model.is_moe:
+            notes.append(
+                "MoE speed uses active parameters plus a bandwidth-scaled dispatch/read floor."
+            )
+            if gpu.vendor == "apple":
+                confidence = _lower_speed_confidence(confidence, "low")
+                notes.append(
+                    "Apple Silicon MoE throughput is especially sensitive to Metal/MLX runtime kernels."
+                )
+            elif gpu.vendor == "amd" and gpu.shared_memory:
+                confidence = _lower_speed_confidence(confidence, "medium")
+                notes.append(
+                    "AMD shared-memory APU estimates are calibrated by bandwidth, but ROCm/Vulkan kernels can differ."
+                )
+
+    if _looks_synthetic_gguf(model, variant):
+        confidence = _lower_speed_confidence(confidence, "medium")
+        notes.append(
+            "This is a synthetic GGUF estimate for an official repo, not a measured GGUF file."
+        )
+
+    low_factor, high_factor = _SPEED_CONFIDENCE_RANGE_FACTORS[confidence]
+    speed_range = (
+        round(estimated_tok_per_sec * low_factor, 1),
+        round(estimated_tok_per_sec * high_factor, 1),
+    )
+    return confidence, speed_range, notes
 
 
 def estimate_tok_per_sec(

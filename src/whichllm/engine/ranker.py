@@ -13,7 +13,7 @@ from whichllm.constants import (
     QUANT_PREFERENCE_ORDER,
 )
 from whichllm.engine.compatibility import check_compatibility
-from whichllm.engine.performance import estimate_tok_per_sec
+from whichllm.engine.performance import estimate_speed_uncertainty, estimate_tok_per_sec
 from whichllm.engine.quantization import effective_quant_type, quant_quality_penalty
 from whichllm.engine.types import CompatibilityResult
 from whichllm.hardware.types import HardwareInfo
@@ -725,6 +725,17 @@ def rank_models(
                     bench_avg = bench_evidence.score * (0.75 + 0.25 * confidence)
 
             compat.estimated_tok_per_sec = tok_per_sec
+            (
+                compat.speed_confidence,
+                compat.speed_range_tok_per_sec,
+                compat.speed_notes,
+            ) = estimate_speed_uncertainty(
+                model,
+                variant,
+                best_gpu,
+                compat.fit_type,
+                tok_per_sec,
+            )
             compat.quality_score = _compute_quality_score(
                 model,
                 variant,

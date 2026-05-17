@@ -624,3 +624,106 @@ class TestMoESpeedEstimation:
         ids = [r.model.id for r in results]
         assert "deepseek-ai/DeepSeek-V4-Flash" not in ids
         assert "Qwen/Qwen3.6-27B" in ids
+
+
+class TestSpeedUncertainty:
+    def test_strix_halo_moe_speed_is_medium_confidence_with_range(self):
+        from whichllm.engine.performance import estimate_speed_uncertainty
+
+        model = ModelInfo(
+            id="unknown/Experimental-80B-A3B",
+            family_id="experimental-80b-a3b",
+            name="Experimental-80B-A3B",
+            parameter_count=79_670_000_000,
+            parameter_count_active=3_000_000_000,
+            is_moe=True,
+        )
+        variant = GGUFVariant(
+            filename="experimental-q4_k_m.gguf",
+            quant_type="Q4_K_M",
+            file_size_bytes=int(45.17 * 1024**3),
+        )
+        strix_halo = GPUInfo(
+            name="Strix Halo",
+            vendor="amd",
+            vram_bytes=96 * 1024**3,
+            memory_bandwidth_gbps=256.0,
+            shared_memory=True,
+        )
+
+        confidence, speed_range, notes = estimate_speed_uncertainty(
+            model, variant, strix_halo, "full_gpu", 48.0
+        )
+
+        assert confidence == "medium"
+        assert speed_range == (28.8, 76.8)
+        assert any("shared-memory APU" in note for note in notes)
+
+    def test_apple_silicon_moe_speed_is_low_confidence(self):
+        from whichllm.engine.performance import estimate_speed_uncertainty
+
+        model = ModelInfo(
+            id="google/gemma-4-26B-A4B-it",
+            family_id="gemma-4-26b-a4b-it",
+            name="gemma-4-26B-A4B-it",
+            parameter_count=26_000_000_000,
+            parameter_count_active=3_800_000_000,
+            is_moe=True,
+        )
+        variant = _gguf("Q4_K_M", 15.0)
+        apple = GPUInfo(
+            name="M3 Max",
+            vendor="apple",
+            vram_bytes=96 * 1024**3,
+            memory_bandwidth_gbps=400.0,
+            shared_memory=True,
+        )
+
+        confidence, speed_range, notes = estimate_speed_uncertainty(
+            model, variant, apple, "full_gpu", 30.0
+        )
+
+        assert confidence == "low"
+        assert speed_range == (10.5, 60.0)
+        assert any("Metal/MLX" in note for note in notes)
+
+    def test_synthetic_gguf_rank_result_exposes_speed_uncertainty(self):
+        model = ModelInfo(
+            id="Qwen/Qwen3-30B-A3B",
+            family_id="qwen3-30b-a3b",
+            name="Qwen3-30B-A3B",
+            parameter_count=30_000_000_000,
+            parameter_count_active=3_000_000_000,
+            is_moe=True,
+            downloads=1_000_000,
+        )
+        hardware = HardwareInfo(
+            gpus=[
+                GPUInfo(
+                    name="Strix Halo",
+                    vendor="amd",
+                    vram_bytes=96 * 1024**3,
+                    memory_bandwidth_gbps=256.0,
+                    shared_memory=True,
+                )
+            ],
+            cpu_name="Ryzen AI MAX+ 395",
+            cpu_cores=16,
+            ram_bytes=128 * 1024**3,
+            disk_free_bytes=500 * 1024**3,
+            os="linux",
+        )
+
+        result = rank_models(
+            [model],
+            hardware,
+            top_n=1,
+            quant_filter="Q4_K_M",
+            benchmark_scores={"Qwen/Qwen3-30B-A3B": 80.0},
+        )[0]
+
+        assert result.speed_confidence == "medium"
+        assert result.speed_range_tok_per_sec is not None
+        assert result.speed_range_tok_per_sec[0] < result.estimated_tok_per_sec
+        assert result.speed_range_tok_per_sec[1] > result.estimated_tok_per_sec
+        assert any("synthetic GGUF" in note for note in result.speed_notes)
