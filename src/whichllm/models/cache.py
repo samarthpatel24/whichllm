@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import time
-from pathlib import Path
+
+from whichllm.utils import _cache_dir
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path.home() / ".cache" / "whichllm"
+CACHE_DIR = _cache_dir()
 CACHE_FILE = CACHE_DIR / "models.json"
 DEFAULT_TTL_SECONDS = 6 * 3600  # 6 hours
 

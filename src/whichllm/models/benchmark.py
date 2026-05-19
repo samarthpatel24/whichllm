@@ -10,15 +10,14 @@ import re
 import statistics
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 import httpx
 
-from whichllm.utils import _current_version
+from whichllm.utils import _cache_dir, _current_version
 
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = Path.home() / ".cache" / "whichllm"
+CACHE_DIR = _cache_dir()
 BENCHMARK_CACHE = CACHE_DIR / "benchmark.json"
 DEFAULT_TTL_SECONDS = 24 * 3600  # 24 hours
 
