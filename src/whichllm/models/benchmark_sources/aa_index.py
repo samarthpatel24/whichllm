@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 import httpx
 
-from whichllm.models.benchmark_sources.constants import _NEXT_DATA_RE
+from whichllm.models.benchmark_sources.constants import _NEXT_DATA_RE, _RSC_PUSH_RE
 from whichllm.models.benchmark_sources.types import ExtractionFailed
 from whichllm.models.benchmark_sources.utils import _walk
 from whichllm.models.http import get_with_retries
@@ -193,6 +194,49 @@ def _normalize_aa_index(index: float) -> float:
     return max(0.0, min(100.0, round(normalized, 1)))
 
 
+_MODELS_ARRAY_RE = re.compile(r'"models"\s*:\s*\[')
+
+
+def _extract_rsc_pairs(html: str) -> list[tuple[str, float]]:
+    """Extract (display_name, intelligenceIndex) pairs from RSC push payloads.
+
+    The Next.js App Router embeds server data via ``self.__next_f.push([1, "..."])``
+    calls instead of the old ``__NEXT_DATA__`` script tag.  We concatenate and
+    unescape the RSC chunks, locate every ``"models":[...]`` JSON array, and
+    parse each model object for ``name`` + ``intelligenceIndex``.
+    """
+    chunks = _RSC_PUSH_RE.findall(html)
+    if not chunks:
+        return []
+    stream = "".join(chunks)
+    stream = stream.replace('\\"', '"').replace("\\\\", "\\")
+    pairs: list[tuple[str, float]] = []
+    for m in _MODELS_ARRAY_RE.finditer(stream):
+        arr_start = stream.index("[", m.start())
+        depth = 0
+        arr_end = arr_start
+        for i, c in enumerate(stream[arr_start:]):
+            if c == "[":
+                depth += 1
+            elif c == "]":
+                depth -= 1
+            if depth == 0:
+                arr_end = arr_start + i + 1
+                break
+        try:
+            models = json.loads(stream[arr_start:arr_end])
+        except (json.JSONDecodeError, ValueError):
+            continue
+        for obj in models:
+            if not isinstance(obj, dict):
+                continue
+            name = obj.get("name")
+            score = obj.get("intelligenceIndex")
+            if isinstance(name, str) and isinstance(score, (int, float)) and score > 0:
+                pairs.append((name.strip(), float(score)))
+    return pairs
+
+
 def _extract_aa_pairs(payload: dict) -> list[tuple[str, float]]:
     """Walk the Next.js payload looking for {name, intelligenceIndex}-shaped
     objects regardless of where they are nested."""
@@ -233,11 +277,13 @@ async def fetch_aa_index_scores(client: httpx.AsyncClient) -> dict[str, float]:
     scores: dict[str, float] = {}
     resp = await get_with_retries(client, AA_LEADERBOARD_URL)
     resp.raise_for_status()
-    match = _NEXT_DATA_RE.search(resp.text)
-    if not match:
-        raise ExtractionFailed("__NEXT_DATA__ payload not found")
-    payload = json.loads(match.group("json"))
-    pairs = _extract_aa_pairs(payload)
+    pairs = _extract_rsc_pairs(resp.text)
+    if not pairs:
+        match = _NEXT_DATA_RE.search(resp.text)
+        if not match:
+            raise ExtractionFailed("neither RSC push payloads nor __NEXT_DATA__ found")
+        payload = json.loads(match.group("json"))
+        pairs = _extract_aa_pairs(payload)
     if not pairs:
         raise ExtractionFailed("AA leaderboard: no (name, score) pairs found")
     # When the same display name appears multiple times (different size
