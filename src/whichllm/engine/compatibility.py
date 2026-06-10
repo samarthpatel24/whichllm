@@ -8,6 +8,7 @@ from whichllm.constants import VULKAN_ONLY_GPUS
 from whichllm.engine.quantization import estimate_weight_bytes
 from whichllm.engine.types import CompatibilityResult
 from whichllm.engine.vram import estimate_vram
+from whichllm.hardware.memory import estimate_usable_ram
 from whichllm.hardware.types import GPUInfo, HardwareInfo
 from whichllm.models.types import GGUFVariant, ModelInfo
 
@@ -56,8 +57,7 @@ def check_compatibility(
 
     vram_required = estimate_vram(model, variant, context_length)
 
-    # Reserve 20% of RAM for OS and other processes
-    usable_ram = int(hardware.ram_bytes * 0.80)
+    usable_ram = estimate_usable_ram(hardware.ram_bytes)
 
     # Determine best GPU
     best_gpu: GPUInfo | None = None

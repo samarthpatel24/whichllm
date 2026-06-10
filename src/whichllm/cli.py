@@ -127,7 +127,9 @@ def _auto_min_params_for_profile(hardware: HardwareInfo, profile: str) -> float 
         return None
     if not hardware.gpus:
         return 2.0  # CPU-only: tiny is the only practical choice
-    usable_ram = int(hardware.ram_bytes * 0.80)
+    from whichllm.hardware.memory import estimate_usable_ram
+
+    usable_ram = estimate_usable_ram(hardware.ram_bytes)
     best_vram_gb = max(
         (usable_ram if g.shared_memory and g.vram_bytes == 0 else g.vram_bytes)
         for g in hardware.gpus

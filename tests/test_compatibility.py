@@ -1,6 +1,7 @@
 """Tests for compatibility checking."""
 
 from whichllm.engine.compatibility import check_compatibility
+from whichllm.hardware.memory import estimate_usable_ram
 from whichllm.hardware.types import GPUInfo, HardwareInfo
 from whichllm.models.types import GGUFVariant, ModelInfo
 
@@ -92,7 +93,7 @@ def test_shared_memory_amd_apu_uses_system_memory_pool():
 
     assert result.can_run is True
     assert result.fit_type == "full_gpu"
-    assert result.vram_available_bytes == int(hw.ram_bytes * 0.80)
+    assert result.vram_available_bytes == estimate_usable_ram(hw.ram_bytes)
     assert not any("offload" in w.lower() for w in result.warnings)
     assert not any("cpu only" in w.lower() for w in result.warnings)
 
@@ -121,7 +122,7 @@ def test_windows_shared_memory_amd_apu_does_not_emit_rocm_warning():
 
     assert result.can_run is True
     assert result.fit_type == "full_gpu"
-    assert result.vram_available_bytes == int(hw.ram_bytes * 0.80)
+    assert result.vram_available_bytes == estimate_usable_ram(hw.ram_bytes)
     assert not any("rocm" in w.lower() for w in result.warnings)
     assert not any("offload" in w.lower() for w in result.warnings)
 
